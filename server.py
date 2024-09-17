@@ -1,4 +1,5 @@
 import socket
+import select
 import time
 
 # サーバの設定
@@ -14,30 +15,26 @@ print("サーバが起動しました...")
 
 while True:
     try:
-        # 現在の時刻を取得
+        # 現在時刻を取得
         current_time = time.time()
 
-        # 古いクライアントをリストから削除
+        # 受信準備 (サーバソケットでデータが来るのを待つ)
+        ready_sockets, _, _ = select.select([server_socket], [], [], 1)
+
+        if ready_sockets:
+            # メッセージ受信
+            data, addr = server_socket.recvfrom(4096)
+
+            # クライアントの最終メッセージ送信時刻を更新
+            clients[addr] = current_time
+
+            # 他の全クライアントに送信
+            for client in list(clients.keys()):
+                if client != addr:  # 自分には送信しない
+                    server_socket.sendto(data, client)
+
+        # 古いクライアントを削除（タイムアウトしたクライアント）
         clients = {addr: last_time for addr, last_time in clients.items() if current_time - last_time < timeout_seconds}
-
-        # メッセージ受信
-        data, addr = server_socket.recvfrom(4096)
-
-        # クライアントの最終メッセージ送信時刻を更新
-        clients[addr] = current_time
-
-        # usernamelen の取得
-        usernamelen = data[0]
-        
-        # 受け取ったデータをフォーマットして他のクライアントに転送
-        username = data[1:usernamelen+1].decode('utf-8')  # ユーザー名部分
-        message = data[usernamelen+1:].decode('utf-8')    # メッセージ部分
-        formatted_message = f"{username} : {message}".encode('utf-8')
-
-        # 各クライアントに送信
-        for client in clients.keys():
-            if client != addr:  # 自分には送信しない
-                server_socket.sendto(formatted_message, client)
 
     except Exception as e:
         print(f"エラーが発生しました: {e}")
