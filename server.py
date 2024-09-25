@@ -8,34 +8,38 @@ server_port = 12345
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_socket.bind((server_ip, server_port))
 
-#クライアントのトークンとIPアドレスの管理
-valid_tokens = {'client1_token1','client2_token'}
+# クライアントのトークンとIPアドレスの管理
+valid_tokens = {'client1_token1', 'client2_token'}
 allowed_ips = {'127.0.0.1'}
 
 clients = {}
 timeout_seconds = 60  # 60秒間メッセージがなければクライアントを削除
+host_addr = None  # ホストのアドレスを保存
 
 print("サーバが起動しました...")
 
-def verify_token_and_ip(data,addr):
+def verify_token_and_ip(data, addr):
     try:
         token = data.decode('utf-8').strip()
-        
+
         # IPアドレスをチェック
         if addr[0] not in allowed_ips:
             print(f"許可されていないIPアドレス: {addr[0]}")
             return False
-        
+
         # トークンをチェック
         if token not in valid_tokens:
             print(f"無効なトークン: {token}")
             return False
-        
-            # クライアントを登録	return True
-        clients[addr] = time.time()	
-        print(f"クライアントが参加しました: {addr}")	
 
-        
+        # クライアントを登録
+        clients[addr] = time.time()
+
+        global host_addr
+        if host_addr is None:
+            host_addr = addr  # 最初に接続したクライアントをホストとして設定
+
+        print(f"クライアントが参加しました: {addr}")
         return True
     except Exception as e:
         print(f"トークン/IP確認中にエラーが発生しました: {e}")
@@ -60,9 +64,18 @@ while True:
                     # トークンが確認されたら「参加完了」メッセージを送信
                     server_socket.sendto("参加完了".encode('utf-8'), addr)
                     continue
-            
+
             # クライアントの最終メッセージ送信時刻を更新
             clients[addr] = current_time
+
+            # ホストが退出したか確認
+            if addr == host_addr and data.decode('utf-8').strip().lower() == "exit":
+                # ルームを閉鎖する
+                print("ホストが退出しました。ルームを閉鎖します。")
+                for client in list(clients.keys()):
+                    if client != host_addr:
+                        server_socket.sendto("ルームが閉鎖されました".encode('utf-8'), client)
+                break  # サーバーを終了
 
             # 他の全クライアントに送信
             for client in list(clients.keys()):

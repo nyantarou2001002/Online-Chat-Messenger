@@ -6,7 +6,11 @@ def listen_for_messages(client_socket):
         try:
             # サーバからのメッセージを受信
             data, _ = client_socket.recvfrom(4096)
-            print(data.decode('utf-8'))
+            message = data.decode('utf-8')
+            if message == "ルームが閉鎖されました":
+                print("ルームが閉鎖されました。")
+                break
+            print(message)
         except Exception as e:
             print(f"エラーが発生しました: {e}")
             break
@@ -34,6 +38,11 @@ try:
         formatted_message = f"{username} : {message}"
         message_data = formatted_message.encode('utf-8')
         client_socket.sendto(message_data, (server_ip, server_port))
+
+        # ルーム閉鎖のコマンドが送られた場合
+        if message.lower() == "exit":
+            print("退出しました。")
+            break
 
 except Exception as e:
     print(f"エラーが発生しました: {e}")
