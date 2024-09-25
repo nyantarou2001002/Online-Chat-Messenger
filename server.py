@@ -8,10 +8,38 @@ server_port = 12345
 server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
 server_socket.bind((server_ip, server_port))
 
+#クライアントのトークンとIPアドレスの管理
+valid_tokens = {'client1_token1','client2_token'}
+allowed_ips = {'127.0.0.1'}
+
 clients = {}
 timeout_seconds = 60  # 60秒間メッセージがなければクライアントを削除
 
 print("サーバが起動しました...")
+
+def verify_token_and_ip(data,addr):
+    try:
+        token = data.decode('utf-8').strip()
+        
+        # IPアドレスをチェック
+        if addr[0] not in allowed_ips:
+            print(f"許可されていないIPアドレス: {addr[0]}")
+            return False
+        
+        # トークンをチェック
+        if token not in valid_tokens:
+            print(f"無効なトークン: {token}")
+            return False
+        
+            # クライアントを登録	return True
+        clients[addr] = time.time()	
+        print(f"クライアントが参加しました: {addr}")	
+
+        
+        return True
+    except Exception as e:
+        print(f"トークン/IP確認中にエラーが発生しました: {e}")
+        return False
 
 while True:
     try:
@@ -25,6 +53,14 @@ while True:
             # メッセージ受信
             data, addr = server_socket.recvfrom(4096)
 
+            if addr not in clients:
+                if not verify_token_and_ip(data, addr):
+                    continue  # トークンやIPが無効なら処理を中断
+                else:
+                    # トークンが確認されたら「参加完了」メッセージを送信
+                    server_socket.sendto("参加完了".encode('utf-8'), addr)
+                    continue
+            
             # クライアントの最終メッセージ送信時刻を更新
             clients[addr] = current_time
 
