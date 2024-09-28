@@ -1,12 +1,13 @@
 import socket
-import select
+import threading
 import time
+import struct
+import os
 
 # サーバの設定
 server_ip = '127.0.0.1'
-server_port = 12345
-server_socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-server_socket.bind((server_ip, server_port))
+tcp_port = 12345
+udp_port = 12346
 
 # クライアントのトークンとIPアドレスの管理
 valid_tokens = {'client1_token1', 'client2_token'}
@@ -15,6 +16,13 @@ allowed_ips = {'127.0.0.1'}
 clients = {}
 timeout_seconds = 60  # 60秒間メッセージがなければクライアントを削除
 host_addr = None  # ホストのアドレスを保存
+
+# チャットルーム、クライアント、トークンを管理するデータ構造
+chat_rooms = {}  # {room_name: {'host_token': token, 'clients': {token: (ip, port, username)}}}
+token_to_room = {}  # {token: room_name}
+
+def generate_token():
+    return os.urandom(16).hex()  # 32文字の16進数トークン
 
 print("サーバが起動しました...")
 
@@ -45,45 +53,27 @@ def verify_token_and_ip(data, addr):
         print(f"トークン/IP確認中にエラーが発生しました: {e}")
         return False
 
-while True:
+def handle_tcp_client(conn, addr):
     try:
-        # 現在時刻を取得
-        current_time = time.time()
+        # データを受信
+        data = conn.recv(32)
+        if len(data) < 32:
+            print(f"不正なヘッダーサイズ from {addr}")
+            conn.close()
+            return
 
-        # 受信準備 (サーバソケットでデータが来るのを待つ)
-        ready_sockets, _, _ = select.select([server_socket], [], [], 1)
+        # ヘッダーを解析
+        header = data[:32]
+        RoomNameSize, Operation, State, OperationPayloadSize = struct.unpack('!BBB29s', header)
+        OperationPayloadSize = int.from_bytes(OperationPayloadSize, 'big')
 
-        if ready_sockets:
-            # メッセージ受信
-            data, addr = server_socket.recvfrom(4096)
-
-            if addr not in clients:
-                if not verify_token_and_ip(data, addr):
-                    continue  # トークンやIPが無効なら処理を中断
-                else:
-                    # トークンが確認されたら「参加完了」メッセージを送信
-                    server_socket.sendto("参加完了".encode('utf-8'), addr)
-                    continue
-
-            # クライアントの最終メッセージ送信時刻を更新
-            clients[addr] = current_time
-
-            # ホストが退出したか確認
-            if addr == host_addr and data.decode('utf-8').strip().lower() == "exit":
-                # ルームを閉鎖する
-                print("ホストが退出しました。ルームを閉鎖します。")
-                for client in list(clients.keys()):
-                    if client != host_addr:
-                        server_socket.sendto("ルームが閉鎖されました".encode('utf-8'), client)
-                break  # サーバーを終了
-
-            # 他の全クライアントに送信
-            for client in list(clients.keys()):
-                if client != addr:  # 自分には送信しない
-                    server_socket.sendto(data, client)
-
-        # 古いクライアントを削除（タイムアウトしたクライアント）
-        clients = {addr: last_time for addr, last_time in clients.items() if current_time - last_time < timeout_seconds}
+        # ボディを受信
+        body_size = RoomNameSize + OperationPayloadSize
+        body = conn.recv(body_size)
+        if len(body) < body_size:
+            print(f"不正なボディサイズ from {addr}")
+            return
 
     except Exception as e:
-        print(f"エラーが発生しました: {e}")
+        print(f"エラーが発生しました（TCPサーバ処理中）: {e}")
+
