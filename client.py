@@ -7,7 +7,11 @@ def listen_for_messages(client_socket):
         try:
             # サーバからのメッセージを受信
             data, _ = client_socket.recvfrom(4096)
-            print(data.decode('utf-8'))
+            message = data.decode('utf-8')
+            if message == "ルームが閉鎖されました":
+                print("ルームが閉鎖されました。")
+                break
+            print(message)
         except Exception as e:
             print(f"エラーが発生しました: {e}")
             break
@@ -104,6 +108,11 @@ try:
         header = struct.pack('!BB', RoomNameSize, TokenSize)
         packet = header + room_name_bytes + token_bytes + message.encode('utf-8')
         udp_socket.sendto(packet, (server_ip, udp_port))
+
+        # ルーム閉鎖のコマンドが送られた場合
+        if message.lower() == "exit":
+            print("退出しました。")
+            break
 
 except Exception as e:
     print(f"エラーが発生しました: {e}")
