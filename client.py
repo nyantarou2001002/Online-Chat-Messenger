@@ -1,17 +1,23 @@
 import socket
 import threading
 import struct
+import json
 
 def listen_for_messages(client_socket):
     while True:
         try:
             # サーバからのメッセージを受信
             data, _ = client_socket.recvfrom(4096)
-            message = data.decode('utf-8')
-            if message == "ルームが閉鎖されました":
-                print("ルームが閉鎖されました。")
+            if not data:
+                continue
+            # ヘッダーを解析
+            MessageType = data[0]
+            message = data[1:].decode('utf-8')
+            if MessageType == 1:  # 切断メッセージ
+                print("サーバから切断されました。")
                 break
-            print(message)
+            else:
+                print(message)
         except Exception as e:
             print(f"エラーが発生しました: {e}")
             break
@@ -33,6 +39,7 @@ while True:
 
 username = input("ユーザー名を入力してください: ").strip()
 room_name = input("ルーム名を入力してください: ").strip()
+password = input("パスワードを入力してください（パスワードが不要の場合は空のままにしてください）: ").strip()
 
 # TCP接続を確立
 tcp_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -42,10 +49,15 @@ tcp_socket.connect((server_ip, tcp_port))
 RoomNameSize = len(room_name.encode('utf-8'))
 Operation = int(choice)
 State = 0  # リクエスト
-username_bytes = username.encode('utf-8')
-OperationPayloadSize = len(username_bytes)
+
+# OperationPayloadをJSON形式で作成
+payload_dict = {'username': username, 'password': password}
+operation_payload = json.dumps(payload_dict).encode('utf-8')
+OperationPayloadSize = len(operation_payload)
+
+# ヘッダーとボディを作成
 header = struct.pack('!BBB29s', RoomNameSize, Operation, State, OperationPayloadSize.to_bytes(29, 'big'))
-body = room_name.encode('utf-8') + username_bytes
+body = room_name.encode('utf-8') + operation_payload
 tcp_socket.sendall(header + body)
 
 # 状態1の応答を受信
@@ -67,7 +79,7 @@ if resp_State != 2:
 token_bytes = response[32:32+255].rstrip(b'\x00')
 token = token_bytes.decode('utf-8')
 
-print("サーバとの接続が確立されました。チャットを開始します。")
+print("サーバとの接続が確立されました。チャットを開始します。終了するには '/exit' と入力してください。")
 
 tcp_socket.close()
 
@@ -89,7 +101,8 @@ token_bytes = token.encode('utf-8')
 message_bytes = join_message.encode('utf-8')
 RoomNameSize = len(room_name_bytes)
 TokenSize = len(token_bytes)
-header = struct.pack('!BB', RoomNameSize, TokenSize)
+MessageType = 0  # 通常のメッセージ
+header = struct.pack('!BBB', RoomNameSize, TokenSize, MessageType)
 packet = header + room_name_bytes + token_bytes + message_bytes
 udp_socket.sendto(packet, (server_ip, udp_port))
 
@@ -99,20 +112,22 @@ try:
         message = input().strip()
         if not message:
             continue
+        if message == '/exit':
+            # 切断メッセージを送信
+            MessageType = 1  # 切断メッセージ
+            header = struct.pack('!BBB', RoomNameSize, TokenSize, MessageType)
+            packet = header + room_name_bytes + token_bytes
+            udp_socket.sendto(packet, (server_ip, udp_port))
+            print("サーバから切断しました。")
+            break
 
         # メッセージを適切にフォーマットして送信
-        room_name_bytes = room_name.encode('utf-8')
-        token_bytes = token.encode('utf-8')
-        RoomNameSize = len(room_name_bytes)
-        TokenSize = len(token_bytes)
-        header = struct.pack('!BB', RoomNameSize, TokenSize)
+        MessageType = 0  # 通常のメッセージ
+        header = struct.pack('!BBB', RoomNameSize, TokenSize, MessageType)
         packet = header + room_name_bytes + token_bytes + message.encode('utf-8')
         udp_socket.sendto(packet, (server_ip, udp_port))
 
-        # ルーム閉鎖のコマンドが送られた場合
-        if message.lower() == "exit":
-            print("退出しました。")
-            break
-
 except Exception as e:
     print(f"エラーが発生しました: {e}")
+
+udp_socket.close()
